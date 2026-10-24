@@ -32,7 +32,7 @@ function catalog(c) {
 }
 function pushRoster(c) {
   send(c.teacher, {
-    type: 'roster', ...stateMsg(c),
+    ...stateMsg(c),type: 'roster', 
     apps: catalog(c),
     students: [...c.students.values()].map(s => ({
       id: s.id, name: s.name, platform: s.platform,
