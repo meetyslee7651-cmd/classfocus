@@ -1,0 +1,66 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>수업집중 · 교사 콘솔</title>
+<style>
+ body{font-family:system-ui,sans-serif;max-width:640px;margin:0 auto;padding:16px;background:#fff;color:#111}
+ @media(prefers-color-scheme:dark){body{background:#111;color:#eee}}
+ button{padding:14px 18px;font-size:17px;border:0;border-radius:12px;background:#2563eb;color:#fff}
+ button:disabled{opacity:.4}
+ button.stop{background:#dc2626}
+ .row{display:flex;gap:8px;margin:12px 0}.row button{flex:1}
+ .card{border:1px solid #8885;border-radius:12px;padding:12px;margin:12px 0}
+ .bad{color:#dc2626;font-weight:600}.ok{color:#16a34a}
+ label{display:flex;gap:10px;align-items:center;padding:8px 0;font-size:16px}
+ input[type=checkbox]{width:22px;height:22px}
+ .code{font-size:40px;letter-spacing:6px;font-weight:700;text-align:center}
+</style>
+<h2>📵 수업집중 교사 콘솔</h2>
+<div id="app"></div>
+<script>
+let S = JSON.parse(sessionStorage.cls || 'null'), ws, data = null;
+const $ = document.getElementById('app');
+const el = (t, p = {}, ...k) => { const e = document.createElement(t); Object.assign(e, p); k.flat().forEach(x => e.append(x)); return e; };
+
+async function create() {
+  S = await (await fetch('/api/classes', { method: 'POST' })).json();
+  sessionStorage.cls = JSON.stringify(S); connect(); render();
+}
+function connect() {
+  ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  ws.onopen = () => ws.send(JSON.stringify({ type: 'hello', role: 'teacher', code: S.code, token: S.teacherToken }));
+  ws.onmessage = e => { const m = JSON.parse(e.data); if (m.type === 'roster') { data = m; render(); } };
+  ws.onclose = () => setTimeout(connect, 2000);
+}
+const cmd = o => ws.send(JSON.stringify(o));
+function saveAllowed() {
+  const allowed = [...document.querySelectorAll('input[data-pkg]:checked')].map(i => i.dataset.pkg);
+  cmd({ type: 'setAllowed', allowed, iosAllowPreset: document.getElementById('ios').checked });
+}
+function render() {
+  $.replaceChildren();
+  if (!S) { $.append(el('button', { textContent: '새 수업 만들기', onclick: create })); return; }
+  if (!data) { $.append('연결 중…'); return; }
+  $.append(
+    el('div', { className: 'card' }, '학생에게 알려줄 수업 코드', el('div', { className: 'code', textContent: S.code })),
+    el('div', { className: 'row' },
+      el('button', { textContent: data.active ? '수업 중…' : '▶ 수업 시작', disabled: data.active, onclick: () => cmd({ type: 'start' }) }),
+      el('button', { className: 'stop', textContent: '■ 수업 종료', disabled: !data.active, onclick: () => cmd({ type: 'end' }) })));
+  const st = el('div', { className: 'card' }, el('b', { textContent: `학생 ${data.students.length}명` }));
+  data.students.forEach(s => {
+    const warn = s.tamper ? `⚠️ 설정 변경 감지(${s.tamper})` : (!s.online && data.active ? '⚠️ 연결 끊김' : '');
+    st.append(el('div', {}, `${s.platform === 'ios' ? '🍎' : '🤖'} ${s.name} `,
+      el('span', { className: warn ? 'bad' : 'ok', textContent: warn || (s.online ? '정상' : '오프라인') })));
+  });
+  $.append(st);
+  const ap = el('div', { className: 'card' }, el('b', { textContent: '허용할 앱 (체크하면 바로 적용)' }));
+  data.apps.forEach(a => {
+    const cb = el('input', { type: 'checkbox', checked: data.allowed.includes(a.pkg), onchange: saveAllowed });
+    cb.dataset.pkg = a.pkg; ap.append(el('label', {}, cb, a.label));
+  });
+  const ios = el('input', { type: 'checkbox', id: 'ios', checked: data.iosAllowPreset, onchange: saveAllowed });
+  ap.append(el('label', {}, ios, '🍎 아이폰: 학생이 미리 고른 허용 앱 열기'));
+  $.append(ap);
+}
+S ? connect() : render();
+</script>
